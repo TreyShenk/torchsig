@@ -90,7 +90,8 @@ class TorchSigDataModule(pl.LightningDataModule):
             file_writer: FileWriter class for disk I/O.
             file_reader: FileReader class for disk I/O.
             overwrite: If True, existing data at `root` will be overwritten. Defaults to False.
-            impairment_level: Level of synthetic impairment to apply. Defaults to 0 (no impairment).
+            impairment_level: Level of physical synthetic impairment to apply.
+                Defaults to 0 (clean, unmodified IQ).
             transforms: List of transforms applied to each sample's input. Defaults to [].
             target_labels: Names of metadata fields to include. Defaults to None.
             seed: Seed for randomness and reproducibility. Defaults to None.

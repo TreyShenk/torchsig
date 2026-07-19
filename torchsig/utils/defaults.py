@@ -50,12 +50,14 @@ def default_dataset(
     """Create a default TorchSigIterableDataset with optional impairments.
 
     This function creates a dataset with default metadata and applies any specified
-    impairments and transforms. If impairment_level is provided, it adds the
-    corresponding signal and dataset transforms.
+    physical impairments and transforms. If impairment_level is provided, it
+    adds the corresponding physical signal and dataset transforms. For optional,
+    nonphysical ML augmentation, pass ``MLAugmentations()`` explicitly in
+    ``transforms``.
 
     Args:
         impairment_level: Optional impairment level to apply to the dataset.
-            If None, no impairments are applied.
+            If None, no impairments are applied. Level 0 is also clean.
         transforms: List of dataset-level transforms to apply.
         component_transforms: List of signal-level transforms to apply.
         **kwargs: Additional keyword arguments to pass to the dataset constructor.

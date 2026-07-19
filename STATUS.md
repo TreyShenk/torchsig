@@ -1,6 +1,6 @@
 # TorchSig Signal-Processing Review Status
 
-Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Four sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Five sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
 
 ## Maintenance workflow
 
@@ -30,6 +30,11 @@ The following small, unambiguous P2 corrections are also on `main`:
 The clean occupied-bandwidth correction is also on `main`:
 
 - **Resolved:** The generated component's `bandwidth` is now the contiguous FFT-bin interval containing 99% of its clean, time-averaged spectral power, using equal 0.5% frequency tails. The measurement occurs before SNR scaling and before the component is mixed into the dataset noise floor, so it is independent of target SNR and noise level.
+
+The dataset-augmentation separation correction is also on `main`:
+
+- **Resolved:** Impairment level 0 now produces clean, unmodified dataset IQ. Levels 1 and 2 contain physical receiver impairments only; they no longer silently add ML-training augmentations.
+- **Resolved:** The former `RandAugment` set is available explicitly as `MLAugmentations`. It contains `RandomDropSamples`, `ChannelSwap`, `TimeReversal`, and `AddSlope`, and is documented as unsuitable for physically calibrated generation or exact-label evaluation unless the caller has accounted for the applied transform.
 
 The following P1 items were deliberately deferred:
 
@@ -222,6 +227,23 @@ Status: Resolved on `main`. Public family aliases now use explicit memberships r
 
 No combined analog-FM/LFM family is planned; those waveforms are operationally distinct despite both using frequency modulation.
 
+### Resolved — nonphysical ML augmentations were included in level-0 data
+
+Source: PyRISE detector/localizer validation notes produced at commit `b119f7f`.
+
+The former level-0 `Impairments.dataset_transforms` selected two of `RandomDropSamples`, `ChannelSwap`, `TimeReversal`, and `AddSlope` for every sample. Although these can be useful training augmentations, they are not a physical receiver or propagation model. In particular, `AddSlope` implements `y[n] = 2x[n] - x[n-1]`, whose power response is `5 - 4 cos(2πf)`: its relative minimum is at DC and it rises by about 9.5 dB toward the band edges. It therefore caused a randomly occurring broad DC bowl in the noise floor.
+
+Status: Resolved on `main`. Physical impairment levels are now augmentation-free, so level 0 matches its documented clean-IQ contract. The augmentation set is available only through an explicit `MLAugmentations()` transform supplied by the caller. This separates robustness-training data from calibrated signal-generation and ground-truth evaluation data.
+
+The expected probability of the former DC-bowl effect was 50%, because `RandAugment` selected two transforms uniformly without replacement from four candidates. A measured rate near that value across a finite validation corpus is expected.
+
+Follow-up policy:
+
+- Use `default_dataset(impairment_level=None)` or `default_dataset(impairment_level=0)` for clean generated IQ. `TorchSigDataModule` defaults to the latter and is now also clean.
+- Add `MLAugmentations()` explicitly only for training workflows that intentionally value augmentation over physical fidelity.
+- Do not treat labels as exactly calibrated after an augmentation that changes a signal's spectral distribution without a corresponding metadata update. `AddSlope` is the primary example.
+- `PassbandRipple` remains a separate physical-model question: at levels 1 and 2 it can intentionally color the complete capture by roughly 1–2 dB. Its response and gain/SNR convention require a later design decision rather than a partial removal.
+
 ### Decision required — OFDM cyclic-prefix model
 
 OFDM currently omits the cyclic prefix approximately 50% of the time. The variable name is misleading: the code sets `cp_len = 0` when the probability condition succeeds, so simply raising `cyclic_prefix_probability` to 1.0 would make every signal CP-less. The current nonzero CP length is also drawn uniformly from 2 through nearly half the subcarrier count, which is not a clearly realistic deployed-system distribution.
@@ -256,6 +278,8 @@ No signal-generation change is planned. The distinction may be documented more e
 - After the second correction pass, the full suite completed with 270 tests passed, the same 1 unrelated multiprocessing/lambda failure, and 3 deselected.
 - The generation-fidelity correction tests passed: 11 targeted tests and 175 combined signal/transform tests passed.
 - A full-suite run after the generation-fidelity correction completed with 265 tests passed and 3 deselected. The remaining 19 failures are all multiprocessing dataset-loader cases: this macOS sandbox denies PyTorch's `torch_shm_manager` shared-memory helper (`Operation not permitted`) when tests spawn workers. They do not exercise the changed signal-generation or alias code. Re-run those worker tests on the intended Linux development machine outside this sandbox.
+- The augmentation-separation tests verify that level 0 preserves a flat noise spectrum and that the former augmentation set is explicit and reproducible when seeded.
+- The full suite after augmentation separation completed with 267 tests passed and 3 deselected. Its same 19 failures are macOS sandbox multiprocessing cases blocked from launching PyTorch's shared-memory helper; the focused physical-impairment, signal/transform, dataset, and writer tests passed.
 - Independent physics-based checks produced the following results:
 
 | Check | Requested or expected | Measured |
@@ -275,10 +299,9 @@ No signal-generation change is planned. The distinction may be documented more e
 
 ## Recommended next steps
 
-1. Make dataset-generated constellation signals SRRC-shaped by default and validate their occupied-bandwidth distributions.
-2. Replace substring-based family aliases with explicit, regression-tested memberships.
-3. Choose the OFDM cyclic-prefix presence and length model, then implement it as one coherent change.
-4. Define and fix the clock jitter/drift model before treating those impairments as physically calibrated.
-5. Decide whether to retain `requested_bandwidth` as provenance alongside clean occupied-bandwidth ground truth, and standardize estimator parameters.
-6. Continue numerical DSP validation across seeds and waveform families, especially FM calibration.
-7. Revisit existing generated datasets after fixes; corrected waveforms, impairments, and labels will not be statistically compatible with datasets generated by the current code.
+1. Choose the OFDM cyclic-prefix presence and length model, then implement it as one coherent change. First add a deterministic diagnostic that verifies the DC-subcarrier null remains at the shifted center frequency after resampling.
+2. Define and fix the clock jitter/drift model before treating those impairments as physically calibrated.
+3. Decide whether to retain `requested_bandwidth` as provenance alongside clean occupied-bandwidth ground truth, and standardize estimator parameters.
+4. Continue numerical DSP validation across seeds and waveform families, especially FM calibration.
+5. Define the intended receiver-filter model for `PassbandRipple`, including its gain normalization and SNR reference, before considering it calibrated.
+6. Revisit existing generated datasets after fixes; corrected waveforms, impairments, and labels will not be statistically compatible with datasets generated by the current code.

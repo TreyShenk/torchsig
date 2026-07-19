@@ -32,6 +32,44 @@ from torchsig.transforms.transforms import (
 )
 
 
+class MLAugmentations(Compose):
+    """Apply opt-in, nonphysical data augmentations for ML training.
+
+    These transforms intentionally modify complete captures and are not receiver
+    impairment models. In particular, ``AddSlope`` colors the noise spectrum.
+    Do not use this composition when producing physically calibrated IQ or when
+    the existing signal metadata must remain exact for evaluation.
+
+    Args:
+        choose: Number of augmentations to select for each sample. Defaults to 2.
+        replace: Whether an augmentation may be selected more than once. Defaults
+            to False.
+        **kwargs: Additional keyword arguments passed to ``Compose``.
+    """
+
+    def __init__(self, choose: int = 2, replace: bool = False, **kwargs):
+        augmentations = [
+            RandomDropSamples(
+                drop_rate=0.01,
+                size=(1, 1),
+                fill=["ffill", "bfill", "mean", "zero"],
+            ),
+            ChannelSwap(),
+            TimeReversal(),
+            AddSlope(),
+        ]
+        super().__init__(
+            transforms=[
+                RandAugment(
+                    transforms=augmentations,
+                    choose=choose,
+                    replace=replace,
+                )
+            ],
+            **kwargs,
+        )
+
+
 class Impairments(Transform):
     """Applies signal and dataset transformations at specific impairment levels.
 
@@ -99,24 +137,6 @@ class Impairments(Transform):
             RandomApply(DigitalAGC(), 0.25),
         ]
 
-        # define ML transforms
-        ml_transforms = [
-            RandAugment(
-                transforms=[
-                    RandomDropSamples(
-                        drop_rate=0.01,
-                        size=(1, 1),
-                        fill=["ffill", "bfill", "mean", "zero"],
-                    ),
-                    ChannelSwap(),
-                    TimeReversal(),
-                    AddSlope(),
-                ],
-                choose=2,
-                replace=False,
-            )
-        ]
-
         # listing of channel models
         channel_models = [
             RandomApply(Fading(), 0.25),
@@ -132,9 +152,9 @@ class Impairments(Transform):
         st_all_levels = [st_level_0, st_level_1, st_level_2]
 
         # Dataset (RX) Transforms
-        dt_level_0 = copy(ml_transforms)  # ML Transforms
-        dt_level_1 = dt_level_0 + rx_hw_impairments  # ML transforms + HW impairments
-        dt_level_2 = copy(dt_level_1)  # ML transforms + HW impairments
+        dt_level_0 = []  # Clean, physically unmodified dataset IQ
+        dt_level_1 = copy(rx_hw_impairments)  # RX hardware impairments
+        dt_level_2 = copy(dt_level_1)  # RX hardware impairments
 
         dt_all_levels = [dt_level_0, dt_level_1, dt_level_2]
 
