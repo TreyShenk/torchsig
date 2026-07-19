@@ -1,6 +1,6 @@
 # TorchSig Signal-Processing Review Status
 
-Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Six sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Seven sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
 
 ## Maintenance workflow
 
@@ -41,6 +41,10 @@ The pulse-provenance and frequency-placement correction is also on `main`:
 
 - **Resolved:** Dataset-generated constellation signals now retain `pulse_shape_name` and `alpha_rolloff` metadata, so the shaping choice that produced a labeled waveform is inspectable.
 - **Resolved:** Frequency placement now samples center frequency from the interval that keeps the clean measured occupied bandwidth inside the configured frequency limits. It no longer normally invokes the post-placement anti-aliasing filter, which had asymmetrically clipped common default QAM/PSK placements after their bandwidth was measured.
+
+The AM modulation-depth correction is also on `main`:
+
+- **Resolved:** Carrier-present AM (`am-dsb`) now peak-normalizes its real message and uses a conventional modulation depth drawn from `[0, 1]`. Its envelope therefore cannot cross zero through intentional overmodulation.
 
 The following P1 items were deliberately deferred:
 
@@ -258,6 +262,16 @@ Status: Resolved on `main`. `frequency_shift_signal()` now constrains the center
 
 This correction preserves physically meaningful SRRC roll-off; it does not force the PSD to be rectangular. The rolloff parameter is now stored as `alpha_rolloff` metadata so individual examples can be interpreted and audited.
 
+### Resolved — AM-DSB modulation depth did not follow conventional AM semantics
+
+`am-dsb` previously drew a so-called modulation index from 0.8 through 4 and used it both to scale the message and inversely scale the carrier. The actual peak modulation ratio was therefore the square of the drawn value; most realizations were substantially overmodulated, with envelope zero crossings and an uncontrolled carrier-to-sideband ratio.
+
+Status: Resolved on `main`. The AM message is explicitly real, peak-normalized after its bandwidth-limiting filter, and emitted as `1 + μm(t)` with `μ` uniformly drawn from `[0, 1]`. This retains DSB's symmetric sidebands while ensuring a nonnegative conventional AM envelope.
+
+The clean 99%-occupied-bandwidth label remains realization- and modulation-depth-dependent by design: it measures emitted power, not the requested message cutoff. With DSB, a message cutoff of `B/2` produces a total RF width of `B`; this is not a factor-of-two defect.
+
+Current-generator check: a full default `am-dsb` sample placed in a 10 MHz capture had its strongest carrier bin within 9 Hz of the stored `center_freq` (against a 19.5 kHz display-bin width). No current TorchSig carrier/metadata-center mismatch was reproduced. If an external plot still shows a large offset, retain its raw IQ, component metadata, and installed commit for comparison before changing coordinate code.
+
 ### Decision required — OFDM cyclic-prefix model
 
 OFDM currently omits the cyclic prefix approximately 50% of the time. The variable name is misleading: the code sets `cp_len = 0` when the probability condition succeeds, so simply raising `cyclic_prefix_probability` to 1.0 would make every signal CP-less. The current nonzero CP length is also drawn uniformly from 2 through nearly half the subcarrier count, which is not a clearly realistic deployed-system distribution.
@@ -296,6 +310,7 @@ No signal-generation change is planned. The distinction may be documented more e
 - The full suite after augmentation separation completed with 267 tests passed and 3 deselected. Its same 19 failures are macOS sandbox multiprocessing cases blocked from launching PyTorch's shared-memory helper; the focused physical-impairment, signal/transform, dataset, and writer tests passed.
 - The pulse-provenance and placement tests verify stored SRRC metadata, bandwidth-safe center selection without guard-filter invocation, and retained filtering behavior for impossible placement windows.
 - The full suite after the pulse-provenance and placement correction completed with 269 tests passed and 3 deselected. The same 19 failures remain confined to macOS sandbox multiprocessing tests blocked from launching PyTorch's shared-memory helper.
+- The AM modulation-depth regression test verifies a real, nonnegative carrier-present envelope. The full suite after this correction completed with 270 tests passed and 3 deselected; the same 19 macOS sandbox multiprocessing failures remain.
 - Independent physics-based checks produced the following results:
 
 | Check | Requested or expected | Measured |

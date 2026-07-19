@@ -8,6 +8,7 @@ from torchsig.signals.builder import BaseSignalGenerator
 from torchsig.signals.signal_types import Signal
 from torchsig.utils.dsp import (
     TorchSigComplexDataType,
+    TorchSigRealDataType,
     convolve,
     frequency_shift,
     low_pass_iterative_design,
@@ -65,7 +66,7 @@ def am_modulator(
     )
 
     # Generate random message signal
-    message = rng.normal(0, 1, num_samples_mod).astype(TorchSigComplexDataType)
+    message = rng.normal(0, 1, num_samples_mod).astype(TorchSigRealDataType)
     message = message / np.sqrt(np.mean(np.abs(message) ** 2))  # Scale to unit power
 
     # Design bandwidth-limiting filter
@@ -85,10 +86,12 @@ def am_modulator(
     if am_mode == "dsb-sc":
         baseband_signal = shaped_message
     elif am_mode == "dsb":
-        modulation_index = rng.uniform(0.8, 4)
+        # Conventional carrier-present AM uses a real message and a modulation
+        # depth no greater than one, so its envelope does not cross zero.
+        modulation_index = rng.uniform(0.0, 1.0)
         shaped_message_max = np.max(np.abs(shaped_message))
-        carrier = (shaped_message_max / modulation_index) * np.ones(len(shaped_message))
-        baseband_signal = (modulation_index * shaped_message) + carrier
+        normalized_message = shaped_message / shaped_message_max
+        baseband_signal = 1.0 + modulation_index * normalized_message
     elif am_mode == "lsb":
         dsb_upconverted = frequency_shift(shaped_message, bandwidth / 2, sample_rate)
         lsb_signal_at_if = convolve(dsb_upconverted, lpf)

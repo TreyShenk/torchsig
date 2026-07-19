@@ -7,6 +7,7 @@ import pytest
 
 from torchsig.datasets.dataset_utils import frequency_shift_signal
 from torchsig.signals.builder import ConcatSignalGenerator
+from torchsig.signals.builders.am import am_modulator
 from torchsig.signals.builders.constellation import (
     ConstellationSignalGenerator,
     constellation_modulator_baseband,
@@ -14,6 +15,19 @@ from torchsig.signals.builders.constellation import (
 from torchsig.signals.builders.fm import FMSignalGenerator
 from torchsig.signals.signal_types import Signal
 from torchsig.utils.signal_building import lookup_signal_generator_by_string
+
+
+def test_am_dsb_uses_a_nonnegative_real_envelope() -> None:
+    signal = am_modulator(
+        am_mode="dsb",
+        bandwidth=100_000.0,
+        sample_rate=1_000_000.0,
+        num_samples=16_384,
+        rng=np.random.default_rng(0),
+    )
+
+    np.testing.assert_allclose(signal.imag, 0.0, atol=1e-6)
+    assert signal.real.min() >= -1e-6
 
 
 def test_dataset_constellation_generator_uses_srrc_pulse_shape() -> None:
