@@ -7,6 +7,7 @@ Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of 
 - After a feature or correction is complete and validated, update this file, commit the change, and fast-forward the fork's `main` branch so the corrected package is immediately installable.
 - Push only to the user's repository. Fetch and push access to the official TorchSig repository remain disabled unless the user explicitly authorizes official-repository interaction.
 - Keep unresolved modeling decisions and future technical direction documented here rather than applying speculative partial fixes.
+- The README summarizes the fork's independent scope, install URL, user-visible calibration changes, clean-versus-augmentation behavior, and remaining modeling limits. Keep implementation detail and the full decision record here.
 
 ## Overall assessment
 

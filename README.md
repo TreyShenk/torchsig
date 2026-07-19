@@ -7,7 +7,25 @@
 
 -----
 
-[TorchSig](https://torchsig.com) is an open-source signal processing machine learning toolkit based on the PyTorch data handling pipeline. The user-friendly toolkit simplifies common digital signal processing operations, augmentations, and transformations when dealing with both real and complex-valued signals. TorchSig streamlines the integration process of these signals processing tools building on PyTorch, enabling faster and easier development and research for machine learning techniques applied to signals data, particularly within (but not limited to) the radio frequency domain.
+## Fork purpose and scope
+
+This is an independently maintained fork of [TorchSig](https://torchsig.com) focused on physically consistent synthetic RF IQ and ground-truth metadata for local testing, detector evaluation, and development. It is not an official TorchSig release and does not submit changes or pull requests to the upstream project. Upstream TorchSig remains credited under its original license; this fork preserves its API where practical while correcting clear generation and labeling issues.
+
+### Fork highlights
+
+- **Clean occupied-bandwidth labels:** `bandwidth` is measured from each isolated, clean waveform using a 99% equal-tail occupied-power estimate before SNR scaling or dataset noise is added.
+- **Corrected DSP calibration:** amplitude-dB conversion, AGC units, IQ imbalance, ChirpSS sweep width, resampler gain, FSK scaling, and frequency-edge metadata have targeted corrections and regression tests.
+- **More realistic default linear modulation:** dataset-generated PSK/QAM/ASK uses SRRC pulse shaping. Explicit rectangular modulation remains available for deliberate experiments.
+- **Unambiguous signal families:** `fm` means analog FM only; LFM, AM, QAM, PSK, FSK, MSK, and OFDM family aliases have explicit memberships.
+- **Clean means clean:** impairment level 0 now produces unmodified IQ. Optional, nonphysical ML augmentations are opt-in through `MLAugmentations()`.
+
+### Current limitations
+
+Clock jitter/drift, FM bandwidth calibration, OFDM cyclic-prefix defaults, and the physical receiver-filter model behind `PassbandRipple` still need deliberate modeling decisions. Regenerate datasets after these corrections: previously generated data is not statistically equivalent to data from this fork.
+
+See [STATUS.md](STATUS.md) for the technical rationale, validation results, and current priorities.
+
+[TorchSig](https://torchsig.com) is an open-source signal processing machine learning toolkit based on the PyTorch data handling pipeline. The toolkit simplifies common digital signal processing operations, augmentations, and transformations when dealing with both real and complex-valued signals, particularly within (but not limited to) the radio-frequency domain.
 
 # Getting Started
 
@@ -23,11 +41,17 @@ We highly reccomend Ubuntu or using a Docker container.
 ## Installation
 Clone the `torchsig` repository and install using the following commands:
 ```
-git clone https://github.com/TorchDSP/torchsig.git
+git clone https://github.com/TreyShenk/torchsig.git
 cd torchsig
 pip install -e .
 ```
- 
+
+To install this fork directly into another project, use:
+
+```
+pip install "git+https://github.com/TreyShenk/torchsig.git"
+```
+
 # Examples and Tutorials
 
 TorchSig has a series of Jupyter notebooks in the `examples/` directory. View the README inside `examples/` to learn more.
@@ -37,37 +61,47 @@ TorchSig has a series of Jupyter notebooks in the `examples/` directory. View th
 ## Generating Datasets with Python
 TorchSig uses a unified dataset architecture. Create datasets using the Python API:
 ```python
-# define dataset metadata, can override defaults
-dataset_metadata = TorchSigDefaults().default_dataset_metadata
+# Physically clean, label-consistent IQ. Level 0 does not add augmentations.
+from torchsig.datasets.datasets import StaticTorchSigDataset
+from torchsig.utils.data_loading import WorkerSeedingDataLoader
+from torchsig.utils.defaults import default_dataset
+from torchsig.utils.writer import DatasetCreator
 
-# optionally, apply impairments
-impairments = Impairments(level=0)
-burst_impairments = impairments.signal_transforms
-whole_signal_impairments = impairments.dataset_transforms
-
-# create the dataset
-dataset = TorchSigIterableDataset(
-  metadata=dataset_metadata,
-  transforms=[whole_signal_impairments, Spectrogram(fft_size=dataset_metadata["fft_size"])],
-  component_transforms=[burst_impairments],
+dataset = default_dataset(
+    impairment_level=0,
+    signal_generators=["ofdm"],
 )
-# create a dataloader (reproducible)
+
+# Optional training-only augmentation. Do not use this for calibrated evaluation.
+from torchsig.transforms.impairments import MLAugmentations
+
+augmented_dataset = default_dataset(
+    impairment_level=0,
+    signal_generators=["ofdm"],
+    transforms=[MLAugmentations()],
+)
+
+# Add physical receiver impairments only when the scenario requires them.
+impaired_dataset = default_dataset(
+    impairment_level=1,
+    signal_generators=["ofdm"],
+)
+
+# Create a reproducible dataloader for the clean dataset.
 dataloader = WorkerSeedingDataLoader(dataset, batch_size=2)
 
-# save the dataset to disk
+# Save the dataset to disk.
 dataset_creator = DatasetCreator(
-  dataset_length=20,
-  dataloader=dataloader,
-  root="./sample_dataset",
-  overwrite=True,
-  multithreading=False,
+    dataset_length=20,
+    dataloader=dataloader,
+    root="./sample_dataset",
+    overwrite=True,
+    multithreading=False,
 )
 dataset_creator.create()
 
-# load the dataset in from disk
-static_dataset = StaticTorchSigDataset(
-  root="./sample_dataset",
-)
+# Load it back from disk.
+static_dataset = StaticTorchSigDataset(root="./sample_dataset")
 
 print(static_dataset[0])
 ```
