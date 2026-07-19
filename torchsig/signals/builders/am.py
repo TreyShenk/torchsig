@@ -95,14 +95,14 @@ def am_modulator(
         baseband_signal_oversampled = frequency_shift(
             lsb_signal_at_if, -bandwidth / 4, sample_rate
         )
-        baseband_signal = polyphase_decimator(baseband_signal_oversampled, 2) * 2
+        baseband_signal = polyphase_decimator(baseband_signal_oversampled, 2)
     elif am_mode == "usb":
         dsb_downconverted = frequency_shift(shaped_message, -bandwidth / 2, sample_rate)
         usb_signal_atif = convolve(dsb_downconverted, lpf)
         baseband_signal_oversampled = frequency_shift(
             usb_signal_atif, bandwidth / 4, sample_rate
         )
-        baseband_signal = polyphase_decimator(baseband_signal_oversampled, 2) * 2
+        baseband_signal = polyphase_decimator(baseband_signal_oversampled, 2)
 
     return baseband_signal.astype(TorchSigComplexDataType)
 

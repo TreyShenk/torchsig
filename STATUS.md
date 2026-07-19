@@ -1,6 +1,6 @@
 # TorchSig Signal-Processing Review Status
 
-Reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Clear corrections from the first pass are now on `main`; the remaining unambiguous P2 corrections are in progress on `codex/clear-remaining-dsp-fixes`.
 
 ## Overall assessment
 
@@ -8,17 +8,28 @@ The signal models are not yet trustworthy as physically calibrated generators. S
 
 ## Implementation progress
 
-Work is in progress on branch `codex/clear-p1-dsp-fixes`. Only P1 items with small, unambiguous corrections were changed:
+The first set of small, unambiguous P1 corrections is on `main`:
 
 - **Resolved:** Coarse gain now converts dB to sample amplitude with `10 ** (dB / 20)`.
 - **Resolved:** ChirpSS now treats `bandwidth` as the total sweep width and chirps from `-bandwidth / 2` to `+bandwidth / 2`.
 - **Resolved:** IQ amplitude imbalance now applies symmetric differential half-gains. The requested value is the I-to-Q amplitude ratio in dB, while geometric-mean gain remains one.
 - **Resolved:** Digital AGC now uses actual amplitude dB throughout, and its overflow-rate distribution now uses the configured overflow parameter.
 
+The following small, unambiguous P2 corrections are implemented on `codex/clear-remaining-dsp-fixes`:
+
+- **Resolved:** Dataset frequency-overlap rectangles now use the physical edges `center_freq ± bandwidth / 2` and map the `Fs`-wide Nyquist interval to FFT bins with an `Fs` denominator.
+- **Resolved:** Integer polyphase decimation now preserves unity DC gain. The obsolete AM factor-of-two compensation and FSK bandwidth-dependent gain multiplier were removed with it.
+- **Resolved:** Frequency-edge setters now pass lower and upper edges in the correct order and snapshot the unchanged edge before updating coupled center-frequency and bandwidth metadata.
+
 The following P1 items were deliberately deferred:
 
 - **Deferred — clock jitter/drift:** Multiplying the ppm fraction by the nominal commutator step would fix the obvious scale error, but the intended stochastic models still need to be defined. In particular, jitter should represent sampling-time error rather than an unexplained rate perturbation, and drift needs a documented relationship among oscillator error, accumulated timing phase, output length, and interpolation phase. No partial correction was made.
 - **Deferred — bandwidth estimation:** The current field mixes requested bandwidth, visible-above-noise extent, and purported 99%-power bandwidth. Fixing the threshold alone would silently change dataset-label semantics. Separate metadata definitions should be chosen before changing this path.
+
+The following P2 items remain deliberately deferred:
+
+- **Deferred — FM bandwidth:** Correct normalization depends on defining whether the target is peak deviation, Carson bandwidth, 3 dB bandwidth, or occupied-power bandwidth, and on choosing how a stochastic Gaussian message is bounded. This is a waveform-model decision rather than a mechanical correction.
+- **Deferred — TX spur and DC-offset reference levels:** The current noiseless generation path has no physical noise reference. A correction requires deciding whether levels are relative to carrier power, an explicit configured noise floor, or a later dataset noise floor.
 
 ## High-priority findings
 
@@ -112,13 +123,15 @@ Location: [`torchsig/signals/builders/fm.py`](torchsig/signals/builders/fm.py), 
 
 Normalize or bound the filtered source before applying `fdev`, and explicitly define whether the metadata represents Carson bandwidth, 3 dB bandwidth, or an occupied-power bandwidth.
 
-### P2: Frequency-overlap rectangles are twice as wide as the physical signal
+### P2: Frequency-overlap rectangles are twice as wide as the physical signal — resolved on correction branch
 
 Location: [`torchsig/datasets/datasets.py`](torchsig/datasets/datasets.py), lines 469–478.
 
 A signal with bandwidth `B` should cover `center_freq ± B/2`. The overlap calculation uses `center_freq ± B`, causing placement to reject signals that are actually spectrally disjoint. Its frequency normalization also divides by `Fs/2` rather than `Fs`; in conventional normalized coordinates the rectangle height is four times the expected value, while its physical frequency interval is twice as wide.
 
-### P2: Decimation and FSK apply inconsistent amplitude scaling
+Status: Resolved on `codex/clear-remaining-dsp-fixes` using `center_freq ± bandwidth / 2` and normalizing the full Nyquist interval by `Fs`.
+
+### P2: Decimation and FSK apply inconsistent amplitude scaling — resolved on correction branch
 
 Locations:
 
@@ -135,6 +148,8 @@ fsk_correct_bw *= 1 / resample_rate_ideal
 
 The interpolator has already applied its required gain. Later SNR correction can conceal this issue in generated datasets, but it affects standalone modulators and any nonlinear impairment applied before SNR normalization.
 
+Status: Resolved on `codex/clear-remaining-dsp-fixes`. The decimation prototype retains unity DC gain, the AM-specific compensation was removed, and FSK no longer applies a resampling-rate-dependent amplitude multiplier.
+
 ### P2: TX spur and DC-offset levels are referenced to a nonexistent noise floor
 
 Locations:
@@ -144,11 +159,13 @@ Locations:
 
 The TX impairment path applies these operations to isolated, noiseless generated signals without supplying `noise_power_db`. The functions estimate a noise floor from the minimum of the signal spectrum. Deterministic spectra can contain exact or near-exact FFT zeros, producing `-inf` or arbitrary numerical-floor estimates and causing nominal impairments to disappear or vary unpredictably.
 
-### P2: Frequency-edge setters can create negative bandwidths
+### P2: Frequency-edge setters can create negative bandwidths — resolved on correction branch
 
 Location: [`torchsig/signals/signal_types.py`](torchsig/signals/signal_types.py), lines 138–188.
 
 The `upper_freq` and `lower_freq` setters pass upper and lower edges to `bandwidth_from_lower_upper_freq` in reverse order. If these setters are used, the resulting bandwidth can be negative.
+
+Status: Resolved on `codex/clear-remaining-dsp-fixes`. The setters also retain the cached opposite edge before updating bandwidth so the subsequent center-frequency calculation cannot observe partially updated metadata.
 
 ## Validation status
 
@@ -157,6 +174,7 @@ The `upper_freq` and `lower_freq` setters pass upper and lower edges to `bandwid
 - The original targeted transform suite passed before implementation: 7 tests passed and 80 were deselected.
 - After implementation, 11 targeted functional/regression tests and 13 wrapper/impairment tests passed.
 - The full suite after implementation completed with 265 tests passed, 1 failed, and 3 deselected. The failure is in the two-worker dataset test because it passes a local lambda to a spawned worker and the lambda cannot be pickled; it is unrelated to these DSP changes.
+- After the second correction pass, the full suite completed with 270 tests passed, the same 1 unrelated multiprocessing/lambda failure, and 3 deselected.
 - Independent physics-based checks produced the following results:
 
 | Check | Requested or expected | Measured |
@@ -170,6 +188,7 @@ The `upper_freq` and `lower_freq` setters pass upper and lower edges to `bandwid
 
 - Direct 99%-power FFT measurements for a requested 1 MHz bandwidth gave approximately 0.27–0.33 MHz for FM, 1.20 MHz for SRRC QPSK, 1.96–1.98 MHz for ChirpSS, and 1.01 MHz for 64-subcarrier OFDM. These measurements confirm that the current `bandwidth` field does not represent one common spectral quantity across generators.
 - Post-fix measurements confirmed 10× amplitude for a 20 dB coarse gain, exactly 6 dB I-to-Q gain ratio for a requested 6 dB imbalance, 10× AGC amplitude for a 20 dB initial gain, and approximately 0.993 MHz 99%-power bandwidth for a requested 1 MHz ChirpSS waveform.
+- The second correction pass has 10 focused DSP regression tests passing and 162 transform/signal tests passing. A factor-of-two decimator now measures unity gain away from filter transients, and FSK RMS amplitude remains within approximately 0.3% of unity at interpolation, pass-through, and decimation bandwidths.
 - Existing transform tests mainly verify shapes, dtypes, and that output differs from input. They generally do not verify occupied bandwidth, image-rejection ratio, calibrated gain, or impairment magnitude against physical expectations.
 
 ## Recommended next steps

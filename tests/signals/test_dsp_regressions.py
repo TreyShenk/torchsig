@@ -5,9 +5,13 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from torchsig.datasets.datasets import TorchSigIterableDataset
 from torchsig.signals.builders.chirpss import chirpss_modulator_baseband
+from torchsig.signals.builders.fsk import fsk_modulator
+from torchsig.signals.signal_types import Signal
 from torchsig.transforms.functional import coarse_gain_change, digital_agc, iq_imbalance
 from torchsig.transforms.transforms import DigitalAGC
+from torchsig.utils.dsp import polyphase_decimator
 
 
 def test_coarse_gain_change_uses_amplitude_db() -> None:
@@ -80,3 +84,73 @@ def test_chirpss_uses_bandwidth_as_total_sweep_width() -> None:
     f0, f1, _ = chirp_mock.call_args.args
     assert f0 == pytest.approx(-bandwidth / 2)
     assert f1 == pytest.approx(bandwidth / 2)
+
+
+def test_polyphase_decimator_preserves_dc_gain() -> None:
+    data = np.ones(4096, dtype=np.complex64)
+
+    output = polyphase_decimator(data, decimation_rate=2)
+
+    np.testing.assert_allclose(output[128:-128], 1.0, atol=1e-6)
+
+
+def test_fsk_resampling_does_not_apply_bandwidth_dependent_gain() -> None:
+    resampled = np.ones(64, dtype=np.complex64)
+
+    with patch(
+        "torchsig.signals.builders.fsk.multistage_polyphase_resampler",
+        return_value=resampled,
+    ):
+        output = fsk_modulator(
+            constellation_size=2,
+            fsk_type="fsk",
+            bandwidth=100.0,
+            sample_rate=800.0,
+            num_samples=64,
+            rng=np.random.default_rng(0),
+        )
+
+    np.testing.assert_allclose(output, 1.0)
+
+
+def test_dataset_frequency_rectangle_uses_physical_signal_edges() -> None:
+    dataset = TorchSigIterableDataset(
+        signal_generators=[],
+        validate_init=False,
+        sample_rate=1000.0,
+        fft_size=100,
+    )
+    signal = Signal(
+        data=np.ones(200, dtype=np.complex64),
+        center_freq=100.0,
+        bandwidth=200.0,
+    )
+
+    rectangle = dataset._map_to_coordinates(signal, start_sample=0)  # noqa: SLF001
+
+    assert rectangle.coord_lower_left.y == pytest.approx(50.0)
+    assert rectangle.coord_upper_right.y == pytest.approx(70.0)
+
+
+def test_upper_frequency_setter_keeps_positive_bandwidth() -> None:
+    signal = Signal(
+        data=np.ones(1, dtype=np.complex64), center_freq=100.0, bandwidth=20.0
+    )
+    _ = signal.lower_freq
+
+    signal.upper_freq = 130.0
+
+    assert signal.center_freq == pytest.approx(110.0)
+    assert signal.bandwidth == pytest.approx(40.0)
+
+
+def test_lower_frequency_setter_keeps_positive_bandwidth() -> None:
+    signal = Signal(
+        data=np.ones(1, dtype=np.complex64), center_freq=100.0, bandwidth=20.0
+    )
+    _ = signal.upper_freq
+
+    signal.lower_freq = 70.0
+
+    assert signal.center_freq == pytest.approx(90.0)
+    assert signal.bandwidth == pytest.approx(40.0)

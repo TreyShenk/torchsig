@@ -223,7 +223,6 @@ def fsk_modulator(
     fsk_correct_bw = multistage_polyphase_resampler(
         baseband_signal, resample_rate_ideal
     )
-    fsk_correct_bw *= 1 / resample_rate_ideal
 
     # Adjust signal length
     fsk_correct_bw = (

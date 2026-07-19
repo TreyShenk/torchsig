@@ -144,11 +144,12 @@ class SignalMetadataObject(HierarchicalMetadataObject):
         """
         self["_upper_frequency"] = new_upper_freq
         if hasattr(self, "_lower_frequency") and self._lower_frequency is not None:
+            lower_freq = self._lower_frequency
             self["bandwidth"] = bandwidth_from_lower_upper_freq(
-                new_upper_freq, self.lower_freq
+                lower_freq, new_upper_freq
             )
             self["center_freq"] = center_freq_from_lower_upper_freq(
-                new_upper_freq, self.lower_freq
+                lower_freq, new_upper_freq
             )
 
     @property
@@ -181,11 +182,12 @@ class SignalMetadataObject(HierarchicalMetadataObject):
         """
         self["_lower_frequency"] = new_lower_freq
         if hasattr(self, "_upper_frequency") and self._upper_frequency is not None:
+            upper_freq = self._upper_frequency
             self["bandwidth"] = bandwidth_from_lower_upper_freq(
-                self.upper_freq, new_lower_freq
+                new_lower_freq, upper_freq
             )
             self["center_freq"] = center_freq_from_lower_upper_freq(
-                self.upper_freq, new_lower_freq
+                new_lower_freq, upper_freq
             )
 
     @property

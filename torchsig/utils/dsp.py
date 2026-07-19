@@ -581,11 +581,7 @@ def prototype_polyphase_filter_decimation(
     Returns:
         np.ndarray: Filter weights
     """
-    # design the prototype filter
-    weights = prototype_polyphase_filter(num_branches, attenuation_db)
-    # scale the weights for decimation
-    weights /= num_branches
-    return weights
+    return prototype_polyphase_filter(num_branches, attenuation_db)
 
 
 def prototype_polyphase_filter(

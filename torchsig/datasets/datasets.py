@@ -469,11 +469,11 @@ class TorchSigIterableDataset(HierarchicalMetadataObject, IterableDataset):
         # calculate bin position in FFT
         fs = self["sample_rate"]
         fft_start_bin_norm = (
-            (new_signal.center_freq - new_signal.bandwidth) + (fs / 2)
-        ) / (fs / 2)
+            (new_signal.center_freq - new_signal.bandwidth / 2) + (fs / 2)
+        ) / fs
         fft_stop_bin_norm = (
-            (new_signal.center_freq + new_signal.bandwidth) + (fs / 2)
-        ) / (fs / 2)
+            (new_signal.center_freq + new_signal.bandwidth / 2) + (fs / 2)
+        ) / fs
         fft_start_bin_index = np.round(fft_start_bin_norm * self["fft_size"])
         fft_stop_bin_index = np.round(fft_stop_bin_norm * self["fft_size"])
         # map the position into retangle coordinates
