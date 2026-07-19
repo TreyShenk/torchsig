@@ -197,6 +197,66 @@ The `upper_freq` and `lower_freq` setters pass upper and lower edges to `bandwid
 
 Status: Resolved on `codex/clear-remaining-dsp-fixes`. The setters also retain the cached opposite edge before updating bandwidth so the subsequent center-frequency calculation cannot observe partially updated metadata.
 
+## External validation findings and generation-fidelity plan
+
+Source: PyRISE detector/localizer validation notes produced while using this fork as a clean labeled signal source at commit `625f852`.
+
+### Confirmed — constellation pulse-shape default
+
+`ConstellationSignalGenerator` selects rectangular and SRRC symbol pulses with equal probability. The rectangular pulse is a valid baseband model, but without a subsequent transmit filter it produces broad sinc sidelobes and is a poor 50% default for an off-air communications dataset. The clean occupied-bandwidth labels correctly expose this generated energy; the label is not the defect.
+
+Planned minimal change:
+
+1. Make dataset-generated PSK/QAM/ASK signals use SRRC pulse shaping by default.
+2. Preserve explicit rectangular support in `constellation_modulator()` for intentional experiments.
+3. Retain the existing SRRC rolloff range of 0.1–0.5 initially. Narrowing it is not yet justified and would reduce useful waveform diversity.
+4. Add seeded regression tests proving the dataset generator no longer randomly emits rectangular pulses while the direct rectangular-modulator path remains available.
+5. Validate occupied-bandwidth distributions across several constellation families and seeds after the change.
+
+A configurable rectangular-pulse probability may be added later if a concrete dataset need appears; it is not required for the minimal correction.
+
+### Confirmed — signal-family alias collisions
+
+Family aliases are currently built with substring matching. This silently overwrites the standalone analog-FM key and creates incorrect memberships:
+
+- `fm` emits `fm`, `lfm-data`, and `lfm-radar`.
+- `am` emits the analog-AM variants plus every QAM class because `qam` contains the substring `am`.
+
+Planned minimal change:
+
+1. Replace substring-derived family aliases with explicit memberships.
+2. Make `fm` select standalone analog FM only.
+3. Keep `lfm` as the explicit group containing `lfm-data` and `lfm-radar`.
+4. Make `am` contain only `am-dsb`, `am-dsb-sc`, `am-usb`, and `am-lsb`.
+5. Preserve explicit `qam`, `psk`, `ask`, `fsk`, `msk`, and `ofdm` families without cross-family collisions.
+6. Add tests asserting the complete membership of every public family alias so future class additions cannot silently contaminate another family.
+
+No combined analog-FM/LFM family is planned; those waveforms are operationally distinct despite both using frequency modulation.
+
+### Decision required — OFDM cyclic-prefix model
+
+OFDM currently omits the cyclic prefix approximately 50% of the time. The variable name is misleading: the code sets `cp_len = 0` when the probability condition succeeds, so simply raising `cyclic_prefix_probability` to 1.0 would make every signal CP-less. The current nonzero CP length is also drawn uniformly from 2 through nearly half the subcarrier count, which is not a clearly realistic deployed-system distribution.
+
+Before implementation, decide:
+
+1. Whether the generic `ofdm-*` classes should model deployed CP-OFDM by default while retaining an explicit CP-less option.
+2. Whether CP lengths should be selected from conventional fractions such as 1/4, 1/8, 1/16, and 1/32 of the useful symbol duration.
+3. Whether CP presence and allowed ratios should be generator metadata/configuration rather than hidden constants.
+
+The likely direction is CP-bearing OFDM by default with explicit, correctly named configuration, but no partial probability-only fix should be made before the length model is chosen.
+
+### Reviewed — plain FSK/MSK pulse shape is not a defect
+
+Plain FSK and MSK use a rectangular instantaneous-frequency pulse with continuous phase accumulation. This is a standard full-response CPFSK model; MSK specifically uses the rectangular frequency pulse with modulation index 0.5. Gaussian shaping intentionally defines the separate GFSK/GMSK variants.
+
+No signal-generation change is planned. The distinction may be documented more explicitly, and additional shaped-FSK variants should use explicit names rather than silently changing plain FSK/MSK semantics.
+
+### Scenario configuration and optional future features
+
+- `cochannel_overlap_probability` is an overlap-acceptance probability per candidate placement, not the expected fraction of completed samples containing overlap. A first-class minimum time/frequency separation or guard-band option could improve controlled detector validation, but setting overlap probability to zero is sufficient for the current harness.
+- Signal palette, SNR distribution, and bandwidth range are scenario choices. The consuming project should continue to configure them rather than this fork imposing one communications-only global default.
+- Named curated palettes and a minimum-separation option remain possible convenience features, not correctness fixes.
+
 ## Validation status
 
 - Repository syntax compilation passed with `python3 -m compileall`.
@@ -224,7 +284,10 @@ Status: Resolved on `codex/clear-remaining-dsp-fixes`. The setters also retain t
 
 ## Recommended next steps
 
-1. Decide whether to retain `requested_bandwidth` as provenance alongside the clean realization-specific occupied-bandwidth ground truth, and standardize the occupied-bandwidth estimator parameters.
-2. Define and fix the clock jitter/drift model before treating those impairments as physically calibrated.
-3. Continue numerical DSP validation across seeds and waveform families, especially occupied-bandwidth distributions and FM calibration.
-4. Revisit existing generated datasets after fixes; corrected impairments and labels will not be statistically compatible with datasets generated by the current code.
+1. Make dataset-generated constellation signals SRRC-shaped by default and validate their occupied-bandwidth distributions.
+2. Replace substring-based family aliases with explicit, regression-tested memberships.
+3. Choose the OFDM cyclic-prefix presence and length model, then implement it as one coherent change.
+4. Define and fix the clock jitter/drift model before treating those impairments as physically calibrated.
+5. Decide whether to retain `requested_bandwidth` as provenance alongside clean occupied-bandwidth ground truth, and standardize estimator parameters.
+6. Continue numerical DSP validation across seeds and waveform families, especially FM calibration.
+7. Revisit existing generated datasets after fixes; corrected waveforms, impairments, and labels will not be statistically compatible with datasets generated by the current code.
