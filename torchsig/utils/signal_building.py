@@ -20,26 +20,33 @@ signal_generator_lookup_table: dict[str,
 # Initialize lookup table with signal generators
 signal_generator_lookup_table["tone"] = (ToneSignalGenerator, {})
 num_subcarrier_values = [64, 72, 128, 180, 256, 300, 512, 600, 900, 1024, 1200, 2048]
+ofdm_signal_names = ["ofdm-" + str(num_subcarriers) for num_subcarriers in num_subcarrier_values]
 for num_subcarriers in num_subcarrier_values:
     signal_generator_lookup_table["ofdm-" + str(num_subcarriers)] = (
         OFDMSignalGenerator,
         {"num_subcarriers": num_subcarriers},
     )
+lfm_signal_names = ["lfm-data", "lfm-radar"]
 signal_generator_lookup_table["lfm-data"] = (LFMSignalGenerator, {"lfm_type": "data"})
 signal_generator_lookup_table["lfm-radar"] = (LFMSignalGenerator, {"lfm_type": "radar"})
+fsk_signal_names = []
 for fsk_type in ["fsk", "gfsk", "msk", "gmsk"]:
     for constellation_size in [2, 4, 8, 16]:
-        signal_generator_lookup_table[str(constellation_size) + str(fsk_type)] = (
+        signal_name = str(constellation_size) + str(fsk_type)
+        fsk_signal_names.append(signal_name)
+        signal_generator_lookup_table[signal_name] = (
             FSKSignalGenerator,
             {"fsk_type": fsk_type, "constellation_size": constellation_size},
         )
 signal_generator_lookup_table["fm"] = (FMSignalGenerator, {})
+constellation_signal_names = list(all_symbol_maps)
 for constellation_name in all_symbol_maps:
     signal_generator_lookup_table[constellation_name] = (
         ConstellationSignalGenerator,
         {"constellation_name": constellation_name},
     )
 signal_generator_lookup_table["chirpss"] = (ChirpSSSignalGenerator, {})
+am_signal_names = ["am-dsb", "am-dsb-sc", "am-usb", "am-lsb"]
 for am_mode in ["dsb", "dsb-sc", "usb", "lsb"]:
     signal_generator_lookup_table["am-" + am_mode] = (
         AMSignalGenerator,
@@ -53,14 +60,22 @@ signal_generator_lookup_table["all"] = (
     ],
     {},
 )
-family_names = ["ofdm", "am", "fm", "fsk", "psk", "qam", "ask", "lfm", "msk"]
-for family_name in family_names:
+family_signal_names = {
+    "ofdm": ofdm_signal_names,
+    "am": am_signal_names,
+    "fsk": fsk_signal_names,
+    "psk": [name for name in constellation_signal_names if name.endswith("psk")],
+    "qam": [name for name in constellation_signal_names if "qam" in name],
+    "ask": [name for name in constellation_signal_names if name.endswith("ask")],
+    "lfm": lfm_signal_names,
+    "msk": [name for name in fsk_signal_names if name.endswith("msk")],
+}
+for family_name, signal_names in family_signal_names.items():
     signal_generator_lookup_table[family_name] = (
         ConcatSignalGenerator,
         [
-            signal_generator_lookup_table[key]
-            for key in signal_generator_lookup_table
-            if family_name in key
+            signal_generator_lookup_table[signal_name]
+            for signal_name in signal_names
         ],
         {"family_name": family_name},
     )

@@ -255,13 +255,11 @@ class ConstellationSignalGenerator(BaseSignalGenerator):
         )
         constellation_name = self["constellation_name"]
 
-        # Randomize pulse shape selection
-        if self.random_generator.integers(0, 2) == 0:
-            pulse_shape_name = "srrc"
-            alpha_rolloff = self.random_generator.uniform(0.1, 0.5)
-        else:
-            pulse_shape_name = "rectangular"
-            alpha_rolloff = None
+        # Dataset-generated linear modulations use band-limited SRRC shaping.
+        # The standalone modulator retains explicit rectangular support for
+        # callers who intentionally need that idealized pulse shape.
+        pulse_shape_name = "srrc"
+        alpha_rolloff = self.random_generator.uniform(0.1, 0.5)
 
         # Generate signal
         signal_data = constellation_modulator(

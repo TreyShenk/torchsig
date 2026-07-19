@@ -1,6 +1,6 @@
 # TorchSig Signal-Processing Review Status
 
-Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. The first three sets of clear corrections, including clean equal-tail occupied-bandwidth estimation, are now on `main`.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Four sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
 
 ## Maintenance workflow
 
@@ -54,11 +54,11 @@ Location: [`torchsig/utils/dsp.py`](torchsig/utils/dsp.py), lines 827–860.
 
 The implementation adds `1e-5`, making the requested error 5,000 times too small. Because the polyphase branch is selected with `int(q_step)`, the default perturbations often never select a different branch. Existing tests compare impaired data with the original input; filtering in the resampler can make that comparison pass even if jitter itself has no effect.
 
-### P1: IQ amplitude imbalance does not create an amplitude imbalance — resolved on correction branch
+### P1: IQ amplitude imbalance does not create an amplitude imbalance — resolved
 
 Location: [`torchsig/transforms/functional.py`](torchsig/transforms/functional.py), lines 751–759.
 
-Status: Resolved on `codex/clear-p1-dsp-fixes` using symmetric differential half-gains.
+Status: Resolved on `main` using symmetric differential half-gains.
 
 Both I and Q receive the same multiplier:
 
@@ -68,17 +68,17 @@ Both I and Q receive the same multiplier:
 
 This is common gain, not relative I/Q imbalance, and therefore does not create the expected image component. The expression also uses a power-dB conversion for sample amplitude. Apply differential I/Q gains using `/20`, commonly as symmetric half-gains, so that the requested imbalance corresponds to a measurable image-rejection ratio.
 
-### P1: ChirpSS occupies twice its declared bandwidth — resolved on correction branch
+### P1: ChirpSS occupies twice its declared bandwidth — resolved
 
 Location: [`torchsig/signals/builders/chirpss.py`](torchsig/signals/builders/chirpss.py), lines 73–75.
 
-Status: Resolved on `codex/clear-p1-dsp-fixes` by using `±bandwidth / 2` sweep endpoints.
+Status: Resolved on `main` by using `±bandwidth / 2` sweep endpoints.
 
 The chirp runs from `-bandwidth` to `+bandwidth`, giving a total frequency span of `2 * bandwidth`. Resampling and metadata treat `bandwidth` as the total occupied width. A numerical instantaneous-frequency check produced a span of approximately `0.4999 Fs` for a declared bandwidth of `0.25 Fs`.
 
 Use `-bandwidth / 2` through `+bandwidth / 2`, unless the metadata convention is deliberately changed everywhere else.
 
-### P1: The bandwidth estimator is not a 99% occupied-bandwidth estimator — resolved on correction branch
+### P1: The bandwidth estimator is not a 99% occupied-bandwidth estimator — resolved
 
 Location: [`torchsig/utils/dsp.py`](torchsig/utils/dsp.py), lines 1461–1502.
 
@@ -114,11 +114,11 @@ The minimal correction deliberately retains the existing `bandwidth` field and e
 - Decide whether bandwidth-changing channel or receiver transforms should produce a second clean received-bandwidth field. The current measurement is after component transforms but before frequency translation, dataset noise, and dataset-level transforms.
 - Where a defensible analytical prediction exists, validate stochastic generators by comparing occupied-bandwidth distributions across seeds with that family-specific expectation rather than requiring every realization to match exactly.
 
-### P1: Coarse gain changes double the requested dB change — resolved on correction branch
+### P1: Coarse gain changes double the requested dB change — resolved
 
 Location: [`torchsig/transforms/functional.py`](torchsig/transforms/functional.py), lines 404–409.
 
-Status: Resolved on `codex/clear-p1-dsp-fixes` with amplitude-dB conversion.
+Status: Resolved on `main` with amplitude-dB conversion.
 
 IQ samples are amplitudes, so a dB gain must use:
 
@@ -128,14 +128,14 @@ IQ samples are amplitudes, so a dB gain must use:
 
 The current `/10` expression makes a 20 dB step multiply amplitude by 100, producing a 40 dB power change. This transform is part of the default receiver impairment path.
 
-### P1: Digital AGC parameters are labeled as dB but implemented as nepers — resolved on correction branch
+### P1: Digital AGC parameters are labeled as dB but implemented as nepers — resolved
 
 Locations:
 
 - [`torchsig/transforms/functional.py`](torchsig/transforms/functional.py), lines 529–548.
 - [`torchsig/transforms/transforms.py`](torchsig/transforms/transforms.py), lines 925–930.
 
-Status: Resolved on `codex/clear-p1-dsp-fixes`; the AGC now uses amplitude dB consistently and reads its configured overflow rate.
+Status: Resolved on `main`; the AGC now uses amplitude dB consistently and reads its configured overflow rate.
 
 Signal level and gain use `np.log` and `np.exp`, while the public parameters, thresholds, and documentation call the values dB. Consequently, a nominal 5 dB interval is actually 5 nepers, or about 43.4 dB. `initial_gain_db` is likewise exponentiated directly.
 
@@ -153,15 +153,15 @@ Location: [`torchsig/signals/builders/fm.py`](torchsig/signals/builders/fm.py), 
 
 Normalize or bound the filtered source before applying `fdev`, and explicitly define whether the metadata represents Carson bandwidth, 3 dB bandwidth, or an occupied-power bandwidth.
 
-### P2: Frequency-overlap rectangles are twice as wide as the physical signal — resolved on correction branch
+### P2: Frequency-overlap rectangles are twice as wide as the physical signal — resolved
 
 Location: [`torchsig/datasets/datasets.py`](torchsig/datasets/datasets.py), lines 469–478.
 
 A signal with bandwidth `B` should cover `center_freq ± B/2`. The overlap calculation uses `center_freq ± B`, causing placement to reject signals that are actually spectrally disjoint. Its frequency normalization also divides by `Fs/2` rather than `Fs`; in conventional normalized coordinates the rectangle height is four times the expected value, while its physical frequency interval is twice as wide.
 
-Status: Resolved on `codex/clear-remaining-dsp-fixes` using `center_freq ± bandwidth / 2` and normalizing the full Nyquist interval by `Fs`.
+Status: Resolved on `main` using `center_freq ± bandwidth / 2` and normalizing the full Nyquist interval by `Fs`.
 
-### P2: Decimation and FSK apply inconsistent amplitude scaling — resolved on correction branch
+### P2: Decimation and FSK apply inconsistent amplitude scaling — resolved
 
 Locations:
 
@@ -178,7 +178,7 @@ fsk_correct_bw *= 1 / resample_rate_ideal
 
 The interpolator has already applied its required gain. Later SNR correction can conceal this issue in generated datasets, but it affects standalone modulators and any nonlinear impairment applied before SNR normalization.
 
-Status: Resolved on `codex/clear-remaining-dsp-fixes`. The decimation prototype retains unity DC gain, the AM-specific compensation was removed, and FSK no longer applies a resampling-rate-dependent amplitude multiplier.
+Status: Resolved on `main`. The decimation prototype retains unity DC gain, the AM-specific compensation was removed, and FSK no longer applies a resampling-rate-dependent amplitude multiplier.
 
 ### P2: TX spur and DC-offset levels are referenced to a nonexistent noise floor
 
@@ -189,47 +189,36 @@ Locations:
 
 The TX impairment path applies these operations to isolated, noiseless generated signals without supplying `noise_power_db`. The functions estimate a noise floor from the minimum of the signal spectrum. Deterministic spectra can contain exact or near-exact FFT zeros, producing `-inf` or arbitrary numerical-floor estimates and causing nominal impairments to disappear or vary unpredictably.
 
-### P2: Frequency-edge setters can create negative bandwidths — resolved on correction branch
+### P2: Frequency-edge setters can create negative bandwidths — resolved
 
 Location: [`torchsig/signals/signal_types.py`](torchsig/signals/signal_types.py), lines 138–188.
 
 The `upper_freq` and `lower_freq` setters pass upper and lower edges to `bandwidth_from_lower_upper_freq` in reverse order. If these setters are used, the resulting bandwidth can be negative.
 
-Status: Resolved on `codex/clear-remaining-dsp-fixes`. The setters also retain the cached opposite edge before updating bandwidth so the subsequent center-frequency calculation cannot observe partially updated metadata.
+Status: Resolved on `main`. The setters also retain the cached opposite edge before updating bandwidth so the subsequent center-frequency calculation cannot observe partially updated metadata.
 
-## External validation findings and generation-fidelity plan
+## External validation findings and generation-fidelity status
 
 Source: PyRISE detector/localizer validation notes produced while using this fork as a clean labeled signal source at commit `625f852`.
 
-### Confirmed — constellation pulse-shape default
+### Resolved — constellation pulse-shape default
 
 `ConstellationSignalGenerator` selects rectangular and SRRC symbol pulses with equal probability. The rectangular pulse is a valid baseband model, but without a subsequent transmit filter it produces broad sinc sidelobes and is a poor 50% default for an off-air communications dataset. The clean occupied-bandwidth labels correctly expose this generated energy; the label is not the defect.
 
-Planned minimal change:
+Status: Resolved on `main`. Dataset-generated PSK/QAM/ASK signals now always use SRRC shaping with an independently drawn rolloff in the existing 0.1–0.5 range. Explicit `"rectangular"` support remains in `constellation_modulator_baseband()` and `constellation_modulator()` for intentional experiments. Regression tests prove both behaviors.
 
-1. Make dataset-generated PSK/QAM/ASK signals use SRRC pulse shaping by default.
-2. Preserve explicit rectangular support in `constellation_modulator()` for intentional experiments.
-3. Retain the existing SRRC rolloff range of 0.1–0.5 initially. Narrowing it is not yet justified and would reduce useful waveform diversity.
-4. Add seeded regression tests proving the dataset generator no longer randomly emits rectangular pulses while the direct rectangular-modulator path remains available.
-5. Validate occupied-bandwidth distributions across several constellation families and seeds after the change.
+Future validation: compare occupied-bandwidth distributions across constellation families and seeds. That is useful calibration work, but it does not block this focused default correction.
 
 A configurable rectangular-pulse probability may be added later if a concrete dataset need appears; it is not required for the minimal correction.
 
-### Confirmed — signal-family alias collisions
+### Resolved — signal-family alias collisions
 
 Family aliases are currently built with substring matching. This silently overwrites the standalone analog-FM key and creates incorrect memberships:
 
 - `fm` emits `fm`, `lfm-data`, and `lfm-radar`.
 - `am` emits the analog-AM variants plus every QAM class because `qam` contains the substring `am`.
 
-Planned minimal change:
-
-1. Replace substring-derived family aliases with explicit memberships.
-2. Make `fm` select standalone analog FM only.
-3. Keep `lfm` as the explicit group containing `lfm-data` and `lfm-radar`.
-4. Make `am` contain only `am-dsb`, `am-dsb-sc`, `am-usb`, and `am-lsb`.
-5. Preserve explicit `qam`, `psk`, `ask`, `fsk`, `msk`, and `ofdm` families without cross-family collisions.
-6. Add tests asserting the complete membership of every public family alias so future class additions cannot silently contaminate another family.
+Status: Resolved on `main`. Public family aliases now use explicit memberships rather than substring matching: `fm` remains standalone analog FM, `lfm` contains only `lfm-data` and `lfm-radar`, and `am` contains only the four analog-AM modes. `ofdm`, `fsk`, `psk`, `qam`, `ask`, and `msk` also have explicit, regression-tested membership lists.
 
 No combined analog-FM/LFM family is planned; those waveforms are operationally distinct despite both using frequency modulation.
 
@@ -265,6 +254,8 @@ No signal-generation change is planned. The distinction may be documented more e
 - After implementation, 11 targeted functional/regression tests and 13 wrapper/impairment tests passed.
 - The full suite after implementation completed with 265 tests passed, 1 failed, and 3 deselected. The failure is in the two-worker dataset test because it passes a local lambda to a spawned worker and the lambda cannot be pickled; it is unrelated to these DSP changes.
 - After the second correction pass, the full suite completed with 270 tests passed, the same 1 unrelated multiprocessing/lambda failure, and 3 deselected.
+- The generation-fidelity correction tests passed: 11 targeted tests and 175 combined signal/transform tests passed.
+- A full-suite run after the generation-fidelity correction completed with 265 tests passed and 3 deselected. The remaining 19 failures are all multiprocessing dataset-loader cases: this macOS sandbox denies PyTorch's `torch_shm_manager` shared-memory helper (`Operation not permitted`) when tests spawn workers. They do not exercise the changed signal-generation or alias code. Re-run those worker tests on the intended Linux development machine outside this sandbox.
 - Independent physics-based checks produced the following results:
 
 | Check | Requested or expected | Measured |
