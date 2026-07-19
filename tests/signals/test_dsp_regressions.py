@@ -1,5 +1,6 @@
 """Physics-based regression tests for corrected signal-processing behavior."""
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -11,7 +12,11 @@ from torchsig.signals.builders.fsk import fsk_modulator
 from torchsig.signals.signal_types import Signal
 from torchsig.transforms.functional import coarse_gain_change, digital_agc, iq_imbalance
 from torchsig.transforms.transforms import DigitalAGC
-from torchsig.utils.dsp import polyphase_decimator
+from torchsig.utils.dsp import (
+    estimate_occupied_bandwidth,
+    polyphase_decimator,
+    update_signal_snr_bandwidth,
+)
 
 
 def test_coarse_gain_change_uses_amplitude_db() -> None:
@@ -154,3 +159,45 @@ def test_lower_frequency_setter_keeps_positive_bandwidth() -> None:
 
     assert signal.center_freq == pytest.approx(90.0)
     assert signal.bandwidth == pytest.approx(40.0)
+
+
+def test_occupied_bandwidth_uses_equal_power_tails() -> None:
+    ascending_power = np.array(
+        [0.004, 0.006, 0.49, 1e-12, 0.49, 0.006, 0.004, 1e-12]
+    )
+    spectrogram_db = 10 * np.log10(ascending_power[::-1, np.newaxis])
+
+    bandwidth = estimate_occupied_bandwidth(
+        spectrogram_db,
+        sample_rate=1000.0,
+    )
+
+    assert bandwidth == pytest.approx(625.0)
+
+
+def test_clean_occupied_bandwidth_is_independent_of_target_snr() -> None:
+    sample_rate = 1024.0
+    sample_index = np.arange(4096)
+    clean_data = np.exp(2j * np.pi * 0.125 * sample_index).astype(np.complex64)
+    dataset = SimpleNamespace(
+        fft_size=256,
+        fft_stride=256,
+        sample_rate=sample_rate,
+        noise_power_db=-100.0,
+        random_generator=np.random.default_rng(0),
+    )
+    low_snr_signal = Signal(
+        data=clean_data.copy(),
+        snr_db_min=0.0,
+        snr_db_max=0.0,
+    )
+    high_snr_signal = Signal(
+        data=clean_data.copy(),
+        snr_db_min=50.0,
+        snr_db_max=50.0,
+    )
+
+    update_signal_snr_bandwidth(dataset, low_snr_signal)
+    update_signal_snr_bandwidth(dataset, high_snr_signal)
+
+    assert low_snr_signal.bandwidth == pytest.approx(high_snr_signal.bandwidth)

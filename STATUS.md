@@ -1,6 +1,12 @@
 # TorchSig Signal-Processing Review Status
 
-Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Clear corrections from the first pass are now on `main`; the remaining unambiguous P2 corrections are in progress on `codex/clear-remaining-dsp-fixes`.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. The first three sets of clear corrections, including clean equal-tail occupied-bandwidth estimation, are now on `main`.
+
+## Maintenance workflow
+
+- After a feature or correction is complete and validated, update this file, commit the change, and fast-forward the fork's `main` branch so the corrected package is immediately installable.
+- Push only to the user's repository. Fetch and push access to the official TorchSig repository remain disabled unless the user explicitly authorizes official-repository interaction.
+- Keep unresolved modeling decisions and future technical direction documented here rather than applying speculative partial fixes.
 
 ## Overall assessment
 
@@ -15,16 +21,19 @@ The first set of small, unambiguous P1 corrections is on `main`:
 - **Resolved:** IQ amplitude imbalance now applies symmetric differential half-gains. The requested value is the I-to-Q amplitude ratio in dB, while geometric-mean gain remains one.
 - **Resolved:** Digital AGC now uses actual amplitude dB throughout, and its overflow-rate distribution now uses the configured overflow parameter.
 
-The following small, unambiguous P2 corrections are implemented on `codex/clear-remaining-dsp-fixes`:
+The following small, unambiguous P2 corrections are also on `main`:
 
 - **Resolved:** Dataset frequency-overlap rectangles now use the physical edges `center_freq ± bandwidth / 2` and map the `Fs`-wide Nyquist interval to FFT bins with an `Fs` denominator.
 - **Resolved:** Integer polyphase decimation now preserves unity DC gain. The obsolete AM factor-of-two compensation and FSK bandwidth-dependent gain multiplier were removed with it.
 - **Resolved:** Frequency-edge setters now pass lower and upper edges in the correct order and snapshot the unchanged edge before updating coupled center-frequency and bandwidth metadata.
 
+The clean occupied-bandwidth correction is also on `main`:
+
+- **Resolved:** The generated component's `bandwidth` is now the contiguous FFT-bin interval containing 99% of its clean, time-averaged spectral power, using equal 0.5% frequency tails. The measurement occurs before SNR scaling and before the component is mixed into the dataset noise floor, so it is independent of target SNR and noise level.
+
 The following P1 items were deliberately deferred:
 
 - **Deferred — clock jitter/drift:** Multiplying the ppm fraction by the nominal commutator step would fix the obvious scale error, but the intended stochastic models still need to be defined. In particular, jitter should represent sampling-time error rather than an unexplained rate perturbation, and drift needs a documented relationship among oscillator error, accumulated timing phase, output length, and interpolation phase. No partial correction was made.
-- **Deferred — bandwidth estimation:** The current field mixes requested bandwidth, visible-above-noise extent, and purported 99%-power bandwidth. Fixing the threshold alone would silently change dataset-label semantics. Separate metadata definitions should be chosen before changing this path.
 
 The following P2 items remain deliberately deferred:
 
@@ -69,7 +78,7 @@ The chirp runs from `-bandwidth` to `+bandwidth`, giving a total frequency span 
 
 Use `-bandwidth / 2` through `+bandwidth / 2`, unless the metadata convention is deliberately changed everywhere else.
 
-### P1: The bandwidth estimator is not a 99% occupied-bandwidth estimator
+### P1: The bandwidth estimator is not a 99% occupied-bandwidth estimator — resolved on correction branch
 
 Location: [`torchsig/utils/dsp.py`](torchsig/utils/dsp.py), lines 1461–1502.
 
@@ -83,6 +92,20 @@ The estimator selects every max-hold bin above `noise_power_db + 3 dB` after cal
 At high SNR, far-out sidelobes and leakage cross the absolute threshold. At low SNR, max-hold bins can still cross it even though the time-averaged spectrum used for calibration is lower.
 
 No spectral-power integration is performed, despite the `bandwidth99` name. As a result, bounding-box bandwidth varies with SNR and waveform sidelobes instead of following a consistent occupied-power definition. If the intended quantity is visible-above-noise bandwidth for image labels, it should be named and documented as such rather than replacing physical bandwidth metadata.
+
+Status: Resolved on `main`. The estimator averages the clean spectrogram in linear-power units and retains the contiguous FFT-bin interval after removing 0.5% of power from each frequency tail. The result is computed before SNR scaling and before additive noise.
+
+#### Bandwidth follow-up decisions
+
+The minimal correction deliberately retains the existing `bandwidth` field and existing Blackman-window STFT configuration. The following design questions remain for later work:
+
+- Preserve nominal/design bandwidth separately from realization-specific 99% occupied bandwidth instead of overwriting one field.
+- Decide whether labels should describe intrinsic steady-state modulation bandwidth or the emitted finite burst, whose time gating can broaden the spectrum.
+- Quantify estimator sensitivity to FFT size, stride, Blackman windowing, short bursts, and bin-edge quantization.
+- Decide whether asymmetric signals need stored lower/upper occupied-frequency edges in addition to width; equal tails are retained for now rather than a minimum-width interval.
+- Decide whether bandwidth-changing channel or receiver transforms should produce a second clean received-bandwidth field. The current measurement is after component transforms but before frequency translation, dataset noise, and dataset-level transforms.
+- Validate stochastic generators by comparing occupied-bandwidth distributions across seeds with their nominal theoretical values rather than requiring every realization to match exactly.
+- If SNR-dependent visible bandwidth is useful for spectrogram labeling, give it a separate explicit field rather than reusing physical occupied bandwidth.
 
 ### P1: Coarse gain changes double the requested dB change — resolved on correction branch
 
@@ -189,6 +212,7 @@ Status: Resolved on `codex/clear-remaining-dsp-fixes`. The setters also retain t
 - Direct 99%-power FFT measurements for a requested 1 MHz bandwidth gave approximately 0.27–0.33 MHz for FM, 1.20 MHz for SRRC QPSK, 1.96–1.98 MHz for ChirpSS, and 1.01 MHz for 64-subcarrier OFDM. These measurements confirm that the current `bandwidth` field does not represent one common spectral quantity across generators.
 - Post-fix measurements confirmed 10× amplitude for a 20 dB coarse gain, exactly 6 dB I-to-Q gain ratio for a requested 6 dB imbalance, 10× AGC amplitude for a 20 dB initial gain, and approximately 0.993 MHz 99%-power bandwidth for a requested 1 MHz ChirpSS waveform.
 - The second correction pass has 10 focused DSP regression tests passing and 162 transform/signal tests passing. A factor-of-two decimator now measures unity gain away from filter transients, and FSK RMS amplitude remains within approximately 0.3% of unity at interpolation, pass-through, and decimation bandwidths.
+- The equal-tail bandwidth pass has 12 focused DSP regression tests and 164 transform/signal tests passing. The full suite completed with 272 passed, the same 1 unrelated multiprocessing/lambda failure, and 3 deselected. For clean requested-1 MHz examples, the estimator measured approximately 1.230 MHz for SRRC QPSK and 1.035 MHz for both OFDM-64 and ChirpSS; changing target SNR does not change the measured bandwidth.
 - Existing transform tests mainly verify shapes, dtypes, and that output differs from input. They generally do not verify occupied bandwidth, image-rejection ratio, calibrated gain, or impairment magnitude against physical expectations.
 
 ## Recommended next steps
