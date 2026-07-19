@@ -1,6 +1,6 @@
 # TorchSig Signal-Processing Review Status
 
-Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Five sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
+Originally reviewed against `main` at commit `9b1949e` (`v2.1.1`). The focus of this review was signal-generation correctness, physical units, impairment models, bandwidth/SNR metadata, and the consistency of dataset labels with generated IQ data. Six sets of clear corrections, including clean equal-tail occupied-bandwidth estimation and generation-fidelity defaults, are now on `main`.
 
 ## Maintenance workflow
 
@@ -36,6 +36,11 @@ The dataset-augmentation separation correction is also on `main`:
 
 - **Resolved:** Impairment level 0 now produces clean, unmodified dataset IQ. Levels 1 and 2 contain physical receiver impairments only; they no longer silently add ML-training augmentations.
 - **Resolved:** The former `RandAugment` set is available explicitly as `MLAugmentations`. It contains `RandomDropSamples`, `ChannelSwap`, `TimeReversal`, and `AddSlope`, and is documented as unsuitable for physically calibrated generation or exact-label evaluation unless the caller has accounted for the applied transform.
+
+The pulse-provenance and frequency-placement correction is also on `main`:
+
+- **Resolved:** Dataset-generated constellation signals now retain `pulse_shape_name` and `alpha_rolloff` metadata, so the shaping choice that produced a labeled waveform is inspectable.
+- **Resolved:** Frequency placement now samples center frequency from the interval that keeps the clean measured occupied bandwidth inside the configured frequency limits. It no longer normally invokes the post-placement anti-aliasing filter, which had asymmetrically clipped common default QAM/PSK placements after their bandwidth was measured.
 
 The following P1 items were deliberately deferred:
 
@@ -245,6 +250,14 @@ Follow-up policy:
 - Do not treat labels as exactly calibrated after an augmentation that changes a signal's spectral distribution without a corresponding metadata update. `AddSlope` is the primary example.
 - `PassbandRipple` remains a separate physical-model question: at levels 1 and 2 it can intentionally color the complete capture by roughly 1–2 dB. Its response and gain/SNR convention require a later design decision rather than a partial removal.
 
+### Resolved — ordinary frequency placement could asymmetrically clip shaped signals
+
+The default allowed frequency window was ±2.5 MHz while default component occupied bandwidths were 2.5–3.33 MHz. Center frequencies were drawn across the entire ±2.5 MHz interval and the signal was then filtered if its occupied edges crossed the same limit. Consequently, many ordinary placements were clipped after clean bandwidth estimation. For an SRRC QAM/PSK waveform near the positive upper limit, this produced a guard-filtered high-frequency edge and an unfiltered raised-cosine roll-off on the low-frequency edge, creating an asymmetric-looking spectrogram despite clean level-0 generation.
+
+Status: Resolved on `main`. `frequency_shift_signal()` now constrains the center-frequency draw using the signal's measured clean occupied bandwidth whenever that bandwidth fits within the configured window. Configurations whose requested waveform is wider than the window retain the established anti-alias filtering path; ordinary valid placements no longer silently reshape the waveform after labeling.
+
+This correction preserves physically meaningful SRRC roll-off; it does not force the PSD to be rectangular. The rolloff parameter is now stored as `alpha_rolloff` metadata so individual examples can be interpreted and audited.
+
 ### Decision required — OFDM cyclic-prefix model
 
 OFDM currently omits the cyclic prefix approximately 50% of the time. The variable name is misleading: the code sets `cp_len = 0` when the probability condition succeeds, so simply raising `cyclic_prefix_probability` to 1.0 would make every signal CP-less. The current nonzero CP length is also drawn uniformly from 2 through nearly half the subcarrier count, which is not a clearly realistic deployed-system distribution.
@@ -281,6 +294,8 @@ No signal-generation change is planned. The distinction may be documented more e
 - A full-suite run after the generation-fidelity correction completed with 265 tests passed and 3 deselected. The remaining 19 failures are all multiprocessing dataset-loader cases: this macOS sandbox denies PyTorch's `torch_shm_manager` shared-memory helper (`Operation not permitted`) when tests spawn workers. They do not exercise the changed signal-generation or alias code. Re-run those worker tests on the intended Linux development machine outside this sandbox.
 - The augmentation-separation tests verify that level 0 preserves a flat noise spectrum and that the former augmentation set is explicit and reproducible when seeded.
 - The full suite after augmentation separation completed with 267 tests passed and 3 deselected. Its same 19 failures are macOS sandbox multiprocessing cases blocked from launching PyTorch's shared-memory helper; the focused physical-impairment, signal/transform, dataset, and writer tests passed.
+- The pulse-provenance and placement tests verify stored SRRC metadata, bandwidth-safe center selection without guard-filter invocation, and retained filtering behavior for impossible placement windows.
+- The full suite after the pulse-provenance and placement correction completed with 269 tests passed and 3 deselected. The same 19 failures remain confined to macOS sandbox multiprocessing tests blocked from launching PyTorch's shared-memory helper.
 - Independent physics-based checks produced the following results:
 
 | Check | Requested or expected | Measured |

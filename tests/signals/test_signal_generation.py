@@ -5,12 +5,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from torchsig.datasets.dataset_utils import frequency_shift_signal
 from torchsig.signals.builder import ConcatSignalGenerator
 from torchsig.signals.builders.constellation import (
     ConstellationSignalGenerator,
     constellation_modulator_baseband,
 )
 from torchsig.signals.builders.fm import FMSignalGenerator
+from torchsig.signals.signal_types import Signal
 from torchsig.utils.signal_building import lookup_signal_generator_by_string
 
 
@@ -31,11 +33,13 @@ def test_dataset_constellation_generator_uses_srrc_pulse_shape() -> None:
         "torchsig.signals.builders.constellation.constellation_modulator",
         return_value=np.ones(256, dtype=np.complex64),
     ) as modulator_mock:
-        generator()
+        signal = generator()
 
     args = modulator_mock.call_args.args
     assert args[1] == "srrc"
     assert 0.1 <= args[5] <= 0.5
+    assert signal.pulse_shape_name == "srrc"
+    assert signal.alpha_rolloff == args[5]
 
 
 def test_rectangular_constellation_modulator_remains_explicitly_available() -> None:
@@ -49,6 +53,54 @@ def test_rectangular_constellation_modulator_remains_explicitly_available() -> N
 
     assert output.shape == (256,)
     assert np.iscomplexobj(output)
+
+
+def test_frequency_placement_keeps_clean_bandwidth_inside_limits() -> None:
+    signal = Signal(
+        data=np.ones(128, dtype=np.complex64),
+        center_freq=0.0,
+        bandwidth=3_000_000.0,
+    )
+
+    with patch("torchsig.datasets.dataset_utils.upconversion_anti_aliasing_filter") as filter_mock:
+        output = frequency_shift_signal(
+            signal,
+            center_freq_min=-2_500_000.0,
+            center_freq_max=2_500_000.0,
+            sample_rate=10_000_000.0,
+            frequency_min=-2_500_000.0,
+            frequency_max=2_500_000.0,
+            random_generator=np.random.default_rng(0),
+        )
+
+    assert output.lower_freq >= -2_500_000.0
+    assert output.upper_freq <= 2_500_000.0
+    filter_mock.assert_not_called()
+
+
+def test_frequency_placement_filters_signal_that_cannot_fit() -> None:
+    signal = Signal(
+        data=np.ones(128, dtype=np.complex64),
+        center_freq=0.0,
+        bandwidth=5_000_001.0,
+    )
+
+    with patch(
+        "torchsig.datasets.dataset_utils.upconversion_anti_aliasing_filter",
+        return_value=(signal.data, 0.0, 5_000_000.0),
+    ) as filter_mock:
+        output = frequency_shift_signal(
+            signal,
+            center_freq_min=-2_500_000.0,
+            center_freq_max=2_500_000.0,
+            sample_rate=10_000_000.0,
+            frequency_min=-2_500_000.0,
+            frequency_max=2_500_000.0,
+            random_generator=np.random.default_rng(0),
+        )
+
+    assert output.bandwidth == 5_000_000.0
+    filter_mock.assert_called_once()
 
 
 OFDM_NAMES = {

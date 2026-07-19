@@ -23,24 +23,36 @@ def frequency_shift_signal(
     frequency_min: float,
     random_generator: np.random.Generator | None = None,
 ) -> Signal:
-    """Randomly shifts the frequency of a signal to a new center frequency and applies aliasing filters if necessary.
+    """Randomly shifts a signal while keeping its occupied bandwidth in bounds.
 
     Args:
         signal (Signal): The signal object to be frequency shifted.
-        center_freq_min (float): Minimum center frequency for the random shift.
-        center_freq_max (float): Maximum center frequency for the random shift.
+        center_freq_min (float): Minimum requested center frequency for the random shift.
+        center_freq_max (float): Maximum requested center frequency for the random shift.
         sample_rate (float): The sample rate of the signal.
-        frequency_max (float): Maximum frequency limit for aliasing.
-        frequency_min (float): Minimum frequency limit for aliasing.
+        frequency_max (float): Maximum permitted occupied frequency.
+        frequency_min (float): Minimum permitted occupied frequency.
         random_generator (np.random.Generator, optional): Random number generator for generating the random shift. Defaults to `np.random.default_rng()`.
 
     Returns:
         Signal: The frequency-shifted signal with updated metadata.
+
     """
     random_generator = np.random.default_rng(seed=None) if random_generator is None else random_generator
 
-    # randomize the center frequency
-    center_freq = random_generator.uniform(low=center_freq_min, high=center_freq_max)
+    # Keep the clean occupied bandwidth inside the configured frequency window.
+    # This avoids silently reshaping ordinary generated signals with the
+    # anti-aliasing filter after their bandwidth has been measured.
+    center_freq_lower = max(center_freq_min, frequency_min + signal.bandwidth / 2)
+    center_freq_upper = min(center_freq_max, frequency_max - signal.bandwidth / 2)
+    if center_freq_lower <= center_freq_upper:
+        # Randomize within the bandwidth-valid center-frequency interval.
+        center_freq = random_generator.uniform(low=center_freq_lower, high=center_freq_upper)
+    else:
+        # Some intentionally extreme configurations cannot fit. Retain the
+        # established anti-aliasing path below for those cases rather than
+        # rejecting the whole generated sample.
+        center_freq = random_generator.uniform(low=center_freq_min, high=center_freq_max)
 
     # frequency shift to center_freq
     signal.data = frequency_shift(signal.data, center_freq, sample_rate)
@@ -52,7 +64,8 @@ def frequency_shift_signal(
     upper_freq = signal.upper_freq
     lower_freq = signal.lower_freq
 
-    # has aliasing occured due to the upconversion to the signal?
+    # This is a numerical-safety fallback and handles configurations whose
+    # requested signal bandwidth cannot fit in the configured frequency window.
     if upper_freq > frequency_max or lower_freq < frequency_min:
         # apply an anti-aliasing filter to the signal to attenuate energy that
         # wrapped around -fs/2 or fs/2. additionally, due to the filtering the

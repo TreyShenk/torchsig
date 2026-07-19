@@ -15,7 +15,8 @@ This is an independently maintained fork of [TorchSig](https://torchsig.com) foc
 
 - **Clean occupied-bandwidth labels:** `bandwidth` is measured from each isolated, clean waveform using a 99% equal-tail occupied-power estimate before SNR scaling or dataset noise is added.
 - **Corrected DSP calibration:** amplitude-dB conversion, AGC units, IQ imbalance, ChirpSS sweep width, resampler gain, FSK scaling, and frequency-edge metadata have targeted corrections and regression tests.
-- **More realistic default linear modulation:** dataset-generated PSK/QAM/ASK uses SRRC pulse shaping. Explicit rectangular modulation remains available for deliberate experiments.
+- **More realistic default linear modulation:** dataset-generated PSK/QAM/ASK uses SRRC pulse shaping and records its pulse shape and rolloff in metadata. Explicit rectangular modulation remains available for deliberate experiments.
+- **Bandwidth-safe placement:** component center frequencies are sampled so their clean occupied bandwidth fits the configured frequency window, avoiding ordinary post-placement spectral clipping.
 - **Unambiguous signal families:** `fm` means analog FM only; LFM, AM, QAM, PSK, FSK, MSK, and OFDM family aliases have explicit memberships.
 - **Clean means clean:** impairment level 0 now produces unmodified IQ. Optional, nonphysical ML augmentations are opt-in through `MLAugmentations()`.
 
