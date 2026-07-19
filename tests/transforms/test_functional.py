@@ -388,7 +388,7 @@ def test_coarse_gain_change(data: Any, params: dict, expected: bool, is_error: b
 
         data = coarse_gain_change(data=data, gain_change_db=gain_change_db, start_idx=start_idx)
 
-        gain_change_linear = 10 ** (gain_change_db / 10)
+        gain_change_linear = 10 ** (gain_change_db / 20)
         assert (np.allclose(data[start_idx:], gain_change_linear * data_test[start_idx:], RTOL)) == expected
         assert (type(data) == type(data_test)) == expected
         assert (data.dtype == TorchSigComplexDataType) == expected
@@ -507,8 +507,8 @@ def test_cut_out(data: Any, params: dict, expected: bool | AttributeError | Valu
                 "alpha_overflow": np.log(0.1),
                 "alpha_acquire": np.log(0.1),
                 "ref_level": 0.0,
-                "ref_level_db": np.log(0.1),
-                "track_range_db": np.log(0.1),
+                "ref_level_db": 20 * np.log10(0.1),
+                "track_range_db": abs(20 * np.log10(0.1)),
                 "low_level_db": 0.0,
                 "high_level_db": 0.0,
             },
@@ -524,8 +524,8 @@ def test_cut_out(data: Any, params: dict, expected: bool | AttributeError | Valu
                 "alpha_overflow": np.log(1.1),
                 "alpha_acquire": np.log(1.1),
                 "ref_level": 10.0,
-                "ref_level_db": np.log(10.0),
-                "track_range_db": np.log(4.0),
+                "ref_level_db": 20 * np.log10(10.0),
+                "track_range_db": 20 * np.log10(4.0),
                 "low_level_db": -200.0,
                 "high_level_db": 200.0,
             },
@@ -775,7 +775,6 @@ def test_iq_imbalance(data: Any, params: dict, expected: bool, is_error: bool) -
 
     """
     amplitude_imbalance = params["amplitude_imbalance"]
-    amplitude_imbalance_linear = 10 ** (amplitude_imbalance / 10.0)
     phase_imbalance = params["phase_imbalance"]
     dc_offset_db = params["dc_offset_db"]
     dc_offset_phase_rads = params["dc_offset_phase_rads"]

@@ -71,7 +71,7 @@ def chirpss_modulator_baseband(
     symbols = const[symbol_nums]
 
     # Create chirp template
-    upchirp = chirp(-bandwidth, bandwidth, samples_per_symbol)
+    upchirp = chirp(-bandwidth / 2, bandwidth / 2, samples_per_symbol)
     double_upchirp = np.concatenate((upchirp, upchirp), axis=0)
 
     # Pre-allocate memory for output

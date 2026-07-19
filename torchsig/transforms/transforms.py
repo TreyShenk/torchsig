@@ -924,7 +924,7 @@ class DigitalAGC(SignalTransform):
         )
         self.alpha_track_distribution = self.get_distribution(self.alpha_track, "log10")
         self.alpha_overflow_distribution = self.get_distribution(
-            self.alpha_track, "log10"
+            self.alpha_overflow, "log10"
         )
         self.alpha_acquire_distribution = self.get_distribution(
             self.alpha_acquire, "log10"
@@ -974,7 +974,7 @@ class DigitalAGC(SignalTransform):
         receive_signal[zero_sample_index] = epsilon
 
         # determine average range for input in dB
-        receive_signal_db = np.log(np.abs(receive_signal))
+        receive_signal_db = 20 * np.log10(np.abs(receive_signal))
         receive_signal_mean_db = np.mean(receive_signal_db)
 
         # calculate ranges for how to set AGC reference level.

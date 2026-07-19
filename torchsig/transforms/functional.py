@@ -402,7 +402,7 @@ def coarse_gain_change(
         IQ data with instantaneous gain change applied.
     """
     # convert db to linear units
-    gain_change_linear = 10 ** (gain_change_db / 10)
+    gain_change_linear = 10 ** (gain_change_db / 20)
 
     # create copy of signal
     output_data = copy(data)
@@ -527,9 +527,9 @@ def digital_agc(
         if not np.abs(sample):  # sample == 0
             level_db = -200
         elif not sample_idx:  # first sample == 0, no smoothing
-            level_db = np.log(np.abs(sample))
+            level_db = 20 * np.log10(np.abs(sample))
         else:
-            level_db = level_db * alpha_smooth + np.log(np.abs(sample)) * (
+            level_db = level_db * alpha_smooth + 20 * np.log10(np.abs(sample)) * (
                 1 - alpha_smooth
             )
         output_db = level_db + gain_db
@@ -545,7 +545,7 @@ def digital_agc(
             alpha_adjust = alpha_track
 
         gain_db += diff_db * alpha_adjust
-        output[sample_idx] = sample * np.exp(gain_db)
+        output[sample_idx] = sample * 10 ** (gain_db / 20)
 
     return output.astype(TorchSigComplexDataType)
 
@@ -748,10 +748,11 @@ def iq_imbalance(
     Returns:
         IQ data with IQ Imbalance applied.
     """
-    # amplitude imbalance
-    data = 10 ** (amplitude_imbalance / 10.0) * np.real(data) + 1j * 10 ** (
-        amplitude_imbalance / 10.0
-    ) * np.imag(data)
+    # Apply equal-and-opposite half-gains so amplitude_imbalance is the
+    # requested I-to-Q amplitude ratio in dB while preserving geometric-mean gain.
+    i_gain = 10 ** (amplitude_imbalance / 40.0)
+    q_gain = 10 ** (-amplitude_imbalance / 40.0)
+    data = i_gain * np.real(data) + 1j * q_gain * np.imag(data)
 
     # phase imbalance
     data = np.exp(-1j * phase_imbalance / 2.0) * np.real(data) + np.exp(
